@@ -3,12 +3,14 @@ const cors = require('cors');
 require('dotenv').config();
 const mongoose = require('mongoose');
 
+const dishRoutes = require('./routes/dishRoutes');
+
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8000;
 const DATABASE_URL = process.env.DATABASE_URL;
 
 // Connect to MongoDB
@@ -21,6 +23,8 @@ mongoose
         console.error('Failed to connect to MongoDB:', err.message);
         process.exit(1);
     });
+
+app.use('/api/dishes', dishRoutes);
 
 app.get('/', (req, res) => {
     res.send('Welcome to the Restaurant Ordering System API!');
