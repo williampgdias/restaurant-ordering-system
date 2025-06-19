@@ -1,182 +1,148 @@
 const Order = require('../models/Order');
 const Dish = require('../models/Dish');
+const AppError = require('../utils/AppError');
 
-async function getAllOrders(req, res) {
-    try {
-        const orders = await Order.find().populate('items.dish');
-        res.status(200).json(orders);
-    } catch (error) {
-        console.error('Error fetching orders:', error);
-        res.status(500).json({
-            message: 'Error fetching orders.',
-            error: error.message,
-        });
+const catchAsync = (fn) => (req, res, next) => {
+    fn(req, res, next).catch(next);
+};
+
+const getAllOrders = catchAsync(async (req, res, next) => {
+    const orders = await Order.find().populate('items.dish');
+    res.status(200).json(orders);
+});
+
+// --- Chef de Seção: Criar um Novo Pedido (POST /api/orders) ---
+const createOrder = catchAsync(async (req, res, next) => {
+    const { items, customerName, customerContact } = req.body;
+
+    if (!items || items.length === 0) {
+        return next(new AppError('Order must contain at least one item.', 400));
     }
-}
 
-async function createOrder(req, res) {
-    try {
-        const { items, customerName, customerContact } = req.body;
-        if (!items || items.length === 0) {
-            return res
-                .status(400)
-                .json({ message: 'Order must contain at least one item.' });
+    let totalAmount = 0;
+    const processedItems = [];
+
+    for (const item of items) {
+        const dish = await Dish.findById(item.dish);
+        if (!dish) {
+            return next(
+                new AppError(`Dish with ID ${item.dish} not found.`, 400)
+            );
+        }
+        if (!dish.isAvailable) {
+            return next(
+                new AppError(
+                    `Dish "${dish.name}" is currently not available.`,
+                    400
+                )
+            );
+        }
+        if (item.quantity <= 0) {
+            return next(
+                new AppError(
+                    `Quantity for dish "${dish.name}" must be at least 1.`,
+                    400
+                )
+            );
         }
 
-        let totalAmount = 0;
+        processedItems.push({
+            dish: dish._id,
+            quantity: item.quantity,
+            price: dish.price,
+        });
+        totalAmount += dish.price * item.quantity;
+    }
+
+    const newOrder = new Order({
+        items: processedItems,
+        totalAmount: totalAmount,
+        customerName,
+        customerContact,
+        status: 'pending',
+    });
+
+    await newOrder.save();
+    await newOrder.populate('items.dish');
+
+    res.status(201).json(newOrder);
+});
+
+const getOrderById = catchAsync(async (req, res, next) => {
+    const { id } = req.params;
+    const order = await Order.findById(id).populate('items.dish');
+
+    if (!order) {
+        return next(new AppError('Order not found with that ID.', 404));
+    }
+    res.status(200).json(order);
+});
+
+const updateOrder = catchAsync(async (req, res, next) => {
+    const { id } = req.params;
+    const updates = req.body;
+
+    if (updates.items) {
+        let newTotalAmount = 0;
         const processedItems = [];
 
-        for (const item of items) {
+        for (const item of updates.items) {
             const dish = await Dish.findById(item.dish);
             if (!dish) {
-                return res
-                    .status(400)
-                    .json({ message: `Dish with ID ${item.dish} not found.` });
+                return next(
+                    new AppError(`Dish with ID ${item.dish} not found.`, 400)
+                );
             }
             if (!dish.isAvailable) {
-                return res.status(400).json({
-                    message: `Dish "${dish.name}" is currently not available.`,
-                });
+                return next(
+                    new AppError(
+                        `Dish "${dish.name}" is currently not available.`,
+                        400
+                    )
+                );
             }
             if (item.quantity <= 0) {
-                return res.status(400).json({
-                    message: `Quantity for dish "${dish.name}" must be at least 1.`,
-                });
+                return next(
+                    new AppError(
+                        `Quantity for dish "${dish.name}" must be at least 1.`,
+                        400
+                    )
+                );
             }
-
             processedItems.push({
                 dish: dish._id,
                 quantity: item.quantity,
                 price: dish.price,
             });
-
-            totalAmount += dish.price * item.quantity;
+            newTotalAmount += dish.price * item.quantity;
         }
-
-        // Create new order with the processed items and the total amount
-        const newOrder = new Order({
-            items: processedItems,
-            totalAmount: totalAmount,
-            customerName,
-            customerContact,
-            status: 'pending',
-        });
-
-        // Save the order to the database
-        await newOrder.save();
-
-        // Populate the items with dish details
-        await newOrder.populate('items.dish');
-
-        res.status(201).json(newOrder);
-    } catch (error) {
-        console.error('Error creating order:', error);
-        res.status(500).json({
-            message: 'Error creating order.',
-            error: error.message,
-        });
+        updates.items = processedItems;
+        updates.totalAmount = newTotalAmount;
     }
-}
 
-// Function to get an order by ID
-async function getOrderById(req, res) {
-    try {
-        const { id } = req.params;
-        // Encontra o pedido pelo ID e popula os detalhes dos pratos
-        const order = await Order.findById(id).populate('items.dish');
+    const updatedOrder = await Order.findByIdAndUpdate(id, updates, {
+        new: true,
+        runValidators: true,
+    });
 
-        if (!order) {
-            return res.status(404).json({ message: 'Order not found.' });
-        }
-        res.status(200).json(order);
-    } catch (error) {
-        console.error('Error fetching order by ID:', error);
-        res.status(500).json({
-            message: 'Error fetching order.',
-            error: error.message,
-        });
+    if (!updatedOrder) {
+        return next(new AppError('Order not found with that ID.', 404));
     }
-}
 
-// Function to update an order
-async function updateOrder(req, res) {
-    try {
-        const { id } = req.params;
-        const updates = req.body;
+    await updatedOrder.populate('items.dish');
 
-        if (updates.items) {
-            let newTotalAmount = 0;
-            const processedItems = [];
+    res.status(200).json(updatedOrder);
+});
 
-            for (const item of updates.items) {
-                const dish = await Dish.findById(item.dish);
-                if (!dish) {
-                    return res.status(400).json({
-                        message: `Dish with ID ${item.dish} not found.`,
-                    });
-                }
-                if (!dish.isAvailable) {
-                    return res.status(400).json({
-                        message: `Dish "${dish.name}" is currently not available.`,
-                    });
-                }
-                if (item.quantity <= 0) {
-                    return res.status(400).json({
-                        message: `Quantity for dish "${dish.name}" must be at least 1.`,
-                    });
-                }
-                processedItems.push({
-                    dish: dish._id,
-                    quantity: item.quantity,
-                    price: dish.price,
-                });
-                newTotalAmount += dish.price * item.quantity;
-            }
-            updates.items = processedItems;
-            updates.totalAmount = newTotalAmount;
-        }
+const deleteOrder = catchAsync(async (req, res, next) => {
+    const { id } = req.params;
+    const deletedOrder = await Order.findByIdAndDelete(id);
 
-        // Update the order with the provided updates
-        const updatedOrder = await Order.findByIdAndUpdate(id, updates, {
-            new: true,
-            runValidators: true,
-        });
-
-        if (!updatedOrder) {
-            return res.status(404).json({ message: 'Order not found.' });
-        }
-
-        // Populate the updated order with dish details
-        await updatedOrder.populate('items.dish');
-
-        res.status(200).json(updatedOrder);
-    } catch (error) {
-        console.error('Error updating order:', error);
-        res.status(400).json({
-            message: 'Error updating order.',
-            error: error.message,
-        });
+    if (!deletedOrder) {
+        return next(new AppError('Order not found with that ID.', 404));
     }
-}
-
-// Function to delete an order
-async function deleteOrder(req, res) {
-    try {
-        const { id } = req.params;
-        const deletedOrder = await Order.findByIdAndDelete(id);
-
-        if (!deletedOrder) {
-            return res.status(404).json({ message: 'Order not found.' });
-        }
-        res.status(204).send();
-    } catch (error) {
-        console.error('Error deleting order:', error);
-        res.status(500).json({
-            message: 'Error deleting order.',
-            error: error.message,
-        });
-    }
-}
+    res.status(204).send();
+});
 
 module.exports = {
     getAllOrders,

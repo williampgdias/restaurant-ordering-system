@@ -1,98 +1,53 @@
 const Dish = require('../models/Dish');
+const AppError = require('../utils/AppError');
 
-async function getAllDishes(req, res) {
-    try {
-        const dishes = await Dish.find();
-        res.status(200).json(dishes);
-    } catch (error) {
-        console.error('Error fetching dishes:', error);
-        res.status(500).json({
-            message: 'Error fetching dishes.',
-            error: error.message,
-        });
+const catchAsync = (fn) => (req, res, next) => {
+    fn(req, res, next).catch(next);
+};
+
+const getAllDishes = catchAsync(async (req, res, next) => {
+    const dishes = await Dish.find();
+    res.status(200).json(dishes);
+});
+
+const createDish = catchAsync(async (req, res, next) => {
+    const newDish = new Dish(req.body);
+    await newDish.save();
+    res.status(201).json(newDish);
+});
+
+const getDishById = catchAsync(async (req, res, next) => {
+    const { id } = req.params;
+    const dish = await Dish.findById(id);
+
+    if (!dish) {
+        return next(new AppError('Dish not found with that ID.', 404));
     }
-}
+    res.status(200).json(dish);
+});
 
-async function createDish(req, res) {
-    try {
-        const newDish = new Dish(req.body);
-        await newDish.save();
-        res.status(201).json(newDish);
-    } catch (error) {
-        console.error('Error creating dish:', error);
-        if (error.code === 11000) {
-            return res.status(400).json({
-                message: 'Dish name already exists.',
-                error: error.message,
-            });
-        }
-        res.status(400).json({
-            message: 'Error creating dish.',
-            error: error.message,
-        });
+const updateDish = catchAsync(async (req, res, next) => {
+    const { id } = req.params;
+    const updatedDish = await Dish.findByIdAndUpdate(id, req.body, {
+        new: true,
+        runValidators: true,
+    });
+
+    if (!updatedDish) {
+        return next(new AppError('Dish not found with that ID.', 404));
     }
-}
+    res.status(200).json(updatedDish);
+});
 
-async function getDishById(req, res) {
-    try {
-        const { id } = req.params;
-        const dish = await Dish.findById(id);
-        if (!dish) {
-            return res.status(404).json({ message: 'Dish not found.' });
-        }
-        res.status(200).json(dish);
-    } catch (error) {
-        console.error('Error fetching dish by ID:', error);
-        res.status(500).json({
-            message: 'Error fetching dish by ID.',
-            error: error.message,
-        });
+const deleteDish = catchAsync(async (req, res, next) => {
+    const { id } = req.params;
+    const deletedDish = await Dish.findByIdAndDelete(id);
+
+    if (!deletedDish) {
+        return next(new AppError('Dish not found with that ID.', 404));
     }
-}
-
-async function updateDish(req, res) {
-    try {
-        const { id } = req.params;
-        const updatedDish = await Dish.findByIdAndUpdate(id, req.body, {
-            new: true,
-            runValidators: true,
-        });
-
-        if (!updatedDish) {
-            return res.status(404).json({ message: 'Dish not found.' });
-        }
-        res.status(200).json(updatedDish);
-    } catch (error) {
-        console.error('Error updating dish:', error);
-        if (error.code === 11000) {
-            return res.status(400).json({
-                message: 'Dish name already exists.',
-                error: error.message,
-            });
-        }
-        res.status(400).json({
-            message: 'Error updating dish.',
-            error: error.message,
-        });
-    }
-}
-
-async function deleteDish(req, res) {
-    try {
-        const { id } = req.params;
-        const deletedDish = await Dish.findByIdAndDelete(id);
-        if (!deletedDish) {
-            return res.status(404).json({ message: 'Dish not found.' });
-        }
-        res.status(204).send();
-    } catch (error) {
-        console.error('Error deleting dish:', error);
-        res.status(500).json({
-            message: 'Error deleting dish.',
-            error: error.message,
-        });
-    }
-}
+    res.status(204).send();
+});
 
 module.exports = {
     getAllDishes,
