@@ -4,6 +4,7 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 
 const dishRoutes = require('./routes/dishRoutes');
+const orderRoutes = require('./routes/orderRoutes');
 
 const app = express();
 
@@ -25,6 +26,7 @@ mongoose
     });
 
 app.use('/api/dishes', dishRoutes);
+app.use('/api/orders', orderRoutes);
 
 app.get('/', (req, res) => {
     res.send('Welcome to the Restaurant Ordering System API!');
